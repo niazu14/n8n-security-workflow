@@ -1,0 +1,568 @@
+{
+  "name": "My workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## Automated Security Incident Response System \n**Double click** to edit me. [Guide](https://docs.n8n.io/workflows/sticky-notes/)"
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "position": [
+        -272,
+        -112
+      ],
+      "typeVersion": 1,
+      "id": "94ab15fd-a65f-478a-a64d-47ca1e05eca0",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "path": "/security-alert",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        16
+      ],
+      "id": "fb211290-f143-48f1-a1c9-c79a1d9df992",
+      "name": "Webhook",
+      "webhookId": "20f1fcca-002a-4ad9-bc74-19f554030c1d"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Temporary Debug Data Extraction\nconst items = $input.all();\nconsole.log(\"Webhook data:\", items[0].json);\n\nconst headers = items[0].json.headers || {};\nconst ip = headers[\"cf-connecting-ip\"] || \"NO-IP-IN-HEADERS\";\nconst country = headers[\"cf-ipcountry\"] || \"NO-COUNTRY-IN-HEADERS\";\n\nconsole.log(\"All headers:\", Object.keys(headers));\nconsole.log(\"CF-Connecting-IP:\", headers[\"cf-connecting-ip\"]);\nconsole.log(\"CF-IPCountry:\", headers[\"cf-ipcountry\"]);\n\nreturn [{\n  json: {\n    ip: ip,\n    country: country,\n    timestamp: new Date().toISOString(),\n    debug: \"Check browser console\"\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        192,
+        16
+      ],
+      "id": "f58296c8-2951-47fe-b0cf-8d960dbd2a2b",
+      "name": "Data Extraction"
+    },
+    {
+      "parameters": {
+        "url": "https://www.virustotal.com/api/v3/ip_addresses/{{ $node[\"Data Extraction\"].json.ip }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-apikey",
+              "value": "f718c463ef764e1ce55b23a7546f5d81cf6d6e954fcdf80e6a4b0aaa47f49c5a"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        416,
+        -64
+      ],
+      "id": "40322d2d-b75d-43b4-a5c6-d3cb1b58052f",
+      "name": "VIRUSTOTAL CHECK",
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "url": "https://api.abuseipdb.com/api/v2/check",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "ipAddress",
+              "value": "={{ $node[\"Data Extraction\"].json.ip }}"
+            },
+            {
+              "name": "maxAgeInDays",
+              "value": "90"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Key",
+              "value": "bd69a185c239338e7aa9b93a493835fa48a91faf3774842464092696cae454fffdbfb85c7ae1b17b"
+            },
+            {
+              "name": "Accept",
+              "value": "application/json"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        416,
+        112
+      ],
+      "id": "be9b311a-991e-49fb-918c-8609e151ae60",
+      "name": "ABUSEIPDB CHECK"
+    },
+    {
+      "parameters": {
+        "jsCode": "// REPUTATION ANALYSIS - ULTRA SAFE\nconsole.log(\"=== REPUTATION ANALYSIS ===\");\n\n// Check input structure first\nconsole.log(\"Input type:\", typeof $input);\nconsole.log(\"Is array:\", Array.isArray($input));\n\nlet ip = \"59.103.246.24\"; // Your IP as fallback\nlet country = \"PK\"; // Your country as fallback\nlet reputationScore = 100;\n\n// Safe data extraction with try-catch\ntry {\n  if ($input && Array.isArray($input) && $input.length > 0) {\n    console.log(\"Number of inputs:\", $input.length);\n    \n    // Try to get data from first input\n    if ($input[0] && $input[0].json) {\n      const data = $input[0].json;\n      console.log(\"First input data:\", data);\n      \n      // Try different data structures\n      if (data.ip) ip = data.ip;\n      if (data.country) country = data.country;\n      \n      // Try header extraction\n      if (data.headers) {\n        const headers = data.headers;\n        ip = headers[\"cf-connecting-ip\"] || ip;\n        country = headers[\"cf-ipcountry\"] || country;\n      }\n    }\n    \n    // Process VirusTotal if available\n    if ($input[1] && $input[1].json && $input[1].json.data) {\n      const vtData = $input[1].json;\n      const malicious = vtData.data.attributes?.last_analysis_stats?.malicious || 0;\n      reputationScore -= malicious * 10;\n      console.log(\"VirusTotal malicious:\", malicious);\n    }\n    \n    // Process AbuseIPDB if available\n    if ($input[2] && $input[2].json && $input[2].json.data) {\n      const abuseData = $input[2].json;\n      reputationScore -= abuseData.data.abuseConfidenceScore || 0;\n      console.log(\"AbuseIPDB score:\", abuseData.data.abuseConfidenceScore);\n    }\n  }\n} catch (error) {\n  console.log(\"Error processing data:\", error.message);\n}\n\n// Final calculation\nreputationScore = Math.max(0, Math.min(100, reputationScore));\nconst isMalicious = reputationScore < 70;\n\nconsole.log(\"Final result:\");\nconsole.log(\"IP:\", ip);\nconsole.log(\"Country:\", country);\nconsole.log(\"Score:\", reputationScore);\nconsole.log(\"Action:\", isMalicious ? \"BLOCK\" : \"ALLOW\");\n\nreturn {\n  ip: ip,\n  country: country,\n  reputationScore: reputationScore,\n  isMalicious: isMalicious,\n  timestamp: new Date().toISOString(),\n  decision: isMalicious ? \"BLOCK\" : \"ALLOW\"\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        688,
+        32
+      ],
+      "id": "64938640-2ea0-4d9f-938e-48c97a305eb3",
+      "name": "REPUTATION ANALYSIS"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6d90127b-807e-429a-adf1-ae487bbf7be0",
+              "leftValue": "={{ $node[\"REPUTATION ANALYSIS\"].json.isMalicious }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        880,
+        32
+      ],
+      "id": "1fe6ea47-88c1-436e-b1b2-8114f809407a",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "jsCode": "// FALSE BRANCH - DEBUG DATA ISSUE\nconsole.log(\"=== FALSE BRANCH DEBUG ===\");\n\n// Check what data is actually arriving\nconsole.log(\"Full input:\", JSON.stringify($input, null, 2));\n\nlet receivedData = {};\nif ($input && Array.isArray($input) && $input[0] && $input[0].json) {\n  receivedData = $input[0].json;\n  console.log(\"✅ Data structure:\", Object.keys(receivedData));\n} else {\n  console.log(\"❌ No valid input data\");\n}\n\n// Debug the specific fields\nconsole.log(\"IP field exists:\", 'ip' in receivedData);\nconsole.log(\"Country field exists:\", 'country' in receivedData);\nconsole.log(\"IP value:\", receivedData.ip);\nconsole.log(\"Country value:\", receivedData.country);\n\n// Use the data or fallbacks\nconst ip = receivedData.ip || \"59.103.246.24\"; // Your IP as fallback\nconst country = receivedData.country || \"PK\"; // Your country as fallback\nconst score = receivedData.reputationScore || 100;\n\nconsole.log(\"Final values - IP:\", ip, \"Country:\", country);\n\nreturn {\n  json: {\n    timestamp: new Date().toISOString(),\n    ip_address: ip,\n    country: country,\n    reputation_score: score,\n    status: \"ALLOWED\",\n    virus_total_malicious: receivedData.virusTotalMalicious || 0,\n    abuseipdb_score: receivedData.abuseIPDBScore || 0,\n    decision_reason: `Good reputation score: ${score}`,\n    action_taken: \"AUTOMATIC_ALLOW\",\n    priority: \"LOW\",\n    debug_note: \"Using fallback IP/country\"\n  }\n};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1088,
+        112
+      ],
+      "id": "57552f86-4b32-4317-88ad-876dd1848b12",
+      "name": "FALSE Branch"
+    },
+    {
+      "parameters": {
+        "jsCode": "// TRUE Branch - Safe data access\nlet reputationData = {};\n\nif ($input && $input[0] && $input[0].json) {\n  reputationData = $input[0].json;\n}\n\nconst score = reputationData.reputationScore || 0;\nlet priority = \"LOW\";\nif (score < 30) priority = \"HIGH\";\nelse if (score < 60) priority = \"MEDIUM\";\n\nreturn [\n  {\n    \"Timestamp\": reputationData.timestamp || new Date().toISOString(),\n    \"IP Address\": reputationData.ip || \"Unknown\",\n    \"Reputation Score\": score,\n    \"Is Malicious\": \"YES\",\n    \"VirusTotal Malicious\": reputationData.vtMalicious || 0,\n    \"AbuseIPDB Score\": reputationData.abuseScore || 0,\n    \"Country\": reputationData.country || \"Unknown\",\n    \"Action Taken\": \"BLOCKED\",\n    \"Priority\": priority,\n    \"Status\": \"ACTION REQUIRED\",\n    \"Notes\": \"Auto-blocked via firewall\"\n  }\n];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1088,
+        -48
+      ],
+      "id": "e878f854-6531-4b7e-a8c4-bf8efdf408e8",
+      "name": "TRUE Branch"
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1qglRAqt-5lG7pN_G4Zc_q50G6JmUqVkqyGPn_1a2Lkg",
+          "mode": "list",
+          "cachedResultName": "spreadsheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1qglRAqt-5lG7pN_G4Zc_q50G6JmUqVkqyGPn_1a2Lkg/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1qglRAqt-5lG7pN_G4Zc_q50G6JmUqVkqyGPn_1a2Lkg/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "IP Address",
+              "displayName": "IP Address",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Reputation Score",
+              "displayName": "Reputation Score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Is Malicious",
+              "displayName": "Is Malicious",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "VirusTotal Malicious",
+              "displayName": "VirusTotal Malicious",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": " AbuseIPDB Score",
+              "displayName": " AbuseIPDB Score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Country",
+              "displayName": "Country",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Action Taken",
+              "displayName": "Action Taken",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Jira Ticket",
+              "displayName": "Jira Ticket",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1328,
+        -48
+      ],
+      "id": "65218522-9efc-49e4-92fe-20905899bdd3",
+      "name": "Append row in sheet1",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "i69CK0eH9yRF9Q8d",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1qglRAqt-5lG7pN_G4Zc_q50G6JmUqVkqyGPn_1a2Lkg",
+          "mode": "list",
+          "cachedResultName": "spreadsheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1qglRAqt-5lG7pN_G4Zc_q50G6JmUqVkqyGPn_1a2Lkg/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1qglRAqt-5lG7pN_G4Zc_q50G6JmUqVkqyGPn_1a2Lkg/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "IP Address": "={{ $json.ip_address }}",
+            "Country": "={{ $json.country }}",
+            "Action Taken": "={{ $json.action_taken }}",
+            "Status": "={{ $json.status }}",
+            " AbuseIPDB Score": "={{ $json.abuseipdb_score }}",
+            "VirusTotal Malicious": "={{ $json.virus_total_malicious }}",
+            "Reputation Score": "={{ $json.reputation_score }}",
+            "Is Malicious": "={{ $json.decision_reason }}",
+            "Timestamp": "={{ $json.timestamp }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Timestamp",
+              "displayName": "Timestamp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "IP Address",
+              "displayName": "IP Address",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Reputation Score",
+              "displayName": "Reputation Score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Is Malicious",
+              "displayName": "Is Malicious",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "VirusTotal Malicious",
+              "displayName": "VirusTotal Malicious",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": " AbuseIPDB Score",
+              "displayName": " AbuseIPDB Score",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Country",
+              "displayName": "Country",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Action Taken",
+              "displayName": "Action Taken",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Status",
+              "displayName": "Status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1328,
+        112
+      ],
+      "id": "ddf9505e-cea3-4299-bcfa-690ce84d1ec7",
+      "name": "Append row in sheet",
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "i69CK0eH9yRF9Q8d",
+          "name": "Google Sheets account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Data Extraction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Data Extraction": {
+      "main": [
+        [
+          {
+            "node": "VIRUSTOTAL CHECK",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "ABUSEIPDB CHECK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "VIRUSTOTAL CHECK": {
+      "main": [
+        [
+          {
+            "node": "REPUTATION ANALYSIS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ABUSEIPDB CHECK": {
+      "main": [
+        [
+          {
+            "node": "REPUTATION ANALYSIS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "REPUTATION ANALYSIS": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "TRUE Branch",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "FALSE Branch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FALSE Branch": {
+      "main": [
+        [
+          {
+            "node": "Append row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "TRUE Branch": {
+      "main": [
+        [
+          {
+            "node": "Append row in sheet1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append row in sheet1": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "versionId": "bf647425-00c1-42a9-b380-aa6b47e28a89",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "c1178bc3b8fec0b080afc90baa17c3f68f263aa96fc3391b7d63f6ebd490ebcc"
+  },
+  "id": "gquRPzxORIgzicXy",
+  "tags": []
+}
